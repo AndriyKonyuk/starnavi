@@ -1,18 +1,57 @@
+import jwt
 from django.contrib.auth import authenticate
 from rest_framework import serializers
 
-from api.models import Post, User
+from api.models import Post, User, Likes
+from starnavi.settings import SECRET_KEY
+
+
+class JwtDecode:
+    @classmethod
+    def decode(cls, request):
+        # token = request.META.get('token')
+        token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6MSwiZXhwIjoxNTQ3NjY1NzI5fQ.vJTlWZ6GXbpC9d0dx8F4lLj1LNs2xtN95C-ZhIcz6aI"
+        user_data = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        return user_data
 
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
+        fields = ('username', 'email', 'id')
+
+
+class PostSerializer(serializers.ModelSerializer, JwtDecode):
+    def create(self, validated_data):
+        request = self.context.get("request")
+        user_data = self.decode(request)
+
+        user = User.objects.get(pk=user_data['id'])
+        query = Post(user=user,
+                     title=validated_data["title"],
+                     content=validated_data["content"],
+                     created_date=validated_data["created_date"], )
+        query.save()
+        return query
+
+    def update(self, instance, validated_data):
+        instance.title = validated_data.get('title', instance.title)
+        instance.content = validated_data.get('content', instance.content)
+        instance.created_date = validated_data.get('created', instance.created_date)
+        instance.save()
+        return PostSerializer(instance)
+
+    class Meta:
+        model = Post
         fields = ('__all__')
 
 
-class PostSerializer(serializers.ModelSerializer):
+class LikeSerializer(serializers.ModelSerializer):
+    user = UserSerializer()
+    post = PostSerializer()
+
     class Meta:
-        model = Post
+        model = Likes
         fields = ('__all__')
 
 

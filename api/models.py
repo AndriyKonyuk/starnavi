@@ -73,9 +73,16 @@ class User(AbstractBaseUser, PermissionsMixin):
 class Post(models.Model):
     title = models.CharField(max_length=255, unique=True)
     content = models.TextField()
-    like = models.IntegerField()
     created_date = models.DateTimeField()
     user = models.ForeignKey(User, on_delete=models.CASCADE)
 
     class Meta:
         ordering = ('created_date',)
+
+
+class Likes(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ('user', 'post')

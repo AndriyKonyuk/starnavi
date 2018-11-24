@@ -1,35 +1,70 @@
-from django.shortcuts import render
-from rest_framework import mixins, status
-from rest_framework import generics
+import jwt
+from rest_framework import status, viewsets
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_jwt import authentication
 
-from api.models import Post, User
+from api.models import Post, User, Likes
 from api.renderers import UserJSONRenderer
-from api.serializers import PostSerializer, UserSerializer, RegistrationSerializer
+from api.serializers import PostSerializer, UserSerializer, LikeSerializer, JwtDecode
+from starnavi.settings import SECRET_KEY
 from .serializers import LoginSerializer, RegistrationSerializer
 import api.backends as backends
 
 
-class PostView(mixins.ListModelMixin,
-               mixins.CreateModelMixin,
-               mixins.UpdateModelMixin,
-               generics.GenericAPIView):
+class PostView(viewsets.ModelViewSet):
     queryset = Post.objects.all()
+    serializer_class = PostSerializer
+    http_method_names = ['get', 'post']
+    authentication_classes = (backends.JWTAuthentication,)
+
+    def create(self, request, **kwargs):
+        serializer = PostSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.create(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        else:
+            return Response({"message": "Wrong data"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PostOneView(APIView):
     serializer_class = PostSerializer
     authentication_classes = (backends.JWTAuthentication,)
 
-    def get(self, request, *args, **kwargs):
-        return self.list(request, *args, **kwargs)
+    def get(self, request, pk, **kwargs):
+        query = Post.objects.get(pk=pk)
+        serializer = PostSerializer(query)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def post(self, request, *args, **kwargs):
-        return self.create(request, *args, **kwargs)
+    def delete(self, request, pk, **kwargs):
+        query = Post.objects.get(pk=pk)
+        query.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def put(self, request, *args, **kwargs):
-        return self.update(request, *args, **kwargs)
+    def put(self, request, pk, **kwargs):
+        instance = Post.objects.get(pk=pk)
+        serializer = PostSerializer(data=request.data)
+        post = serializer.update(instance, request.data)
+        return Response(post.data, status=status.HTTP_200_OK)
+
+
+class LikesView(APIView):
+    def post(self, request, pk, **kwargs):
+        user_data = JwtDecode.decode(request)
+
+        post = Post.objects.get(pk=pk)
+        user = User.objects.get(pk=user_data['id'])
+
+        query = Likes.objects.filter(user=user, post=post)
+        if query.exists():
+            query.delete()
+            return Response({"message": "Successful unlike"}, status=status.HTTP_200_OK)
+
+        query = Likes.objects.create(user=user, post=post)
+        query.save()
+        serializer = LikeSerializer(query)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class UserView(APIView):
@@ -37,22 +72,6 @@ class UserView(APIView):
         queryset = User.objects.all()
         result = UserSerializer(queryset, many=True)
         return Response(result.data)
-
-    def post(self, request, *args, **kwargs):
-        username = request.data.get("username", "")
-        password = request.data.get("password", "")
-        email = request.data.get("email", "")
-        if not username or not password or not email:
-            return Response(
-                data={
-                    "message": "username, password and email is required to register a user"
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        new_user = User.objects.create_user(
-            username=username, password=password, email=email
-        )
-        return Response(status=status.HTTP_201_CREATED)
 
 
 class RegistrationAPIView(APIView):
